@@ -170,9 +170,12 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
                 desk.height_limit_config_max_mm,
             )
         if max_height_mm is None:
-            raise RuntimeError(
-                f"Desk {self.desk_info} did not report a usable maximum height"
+            _LOGGER.debug(
+                "Desk %s did not report a usable maximum height; falling back to move_up",
+                self.desk_info,
             )
+            await desk.move_up()
+            return
         await desk.move_to_specified_height(max_height_mm)
 
     async def async_stop(self) -> None:

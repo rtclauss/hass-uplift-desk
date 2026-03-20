@@ -52,6 +52,27 @@ class HelpersTestCase(unittest.TestCase):
             HELPERS.DEFAULT_MAX_HEIGHT_MM,
         )
 
+    def test_choose_height_limit_mm_returns_first_positive_value(self) -> None:
+        self.assertEqual(HELPERS.choose_height_limit_mm(None, 643, 1270), 643)
+        self.assertEqual(HELPERS.choose_height_limit_mm(0, None), None)
+
+    def test_decode_position_encoded_height_mm_maps_min_stand_and_max(self) -> None:
+        minimum_height_mm = 643
+        maximum_height_mm = 1293
+
+        self.assertAlmostEqual(
+            HELPERS.decode_position_encoded_height_mm(6478.3, minimum_height_mm, maximum_height_mm),
+            643.0,
+        )
+        self.assertAlmostEqual(
+            HELPERS.decode_position_encoded_height_mm(2689.5, minimum_height_mm, maximum_height_mm),
+            918.2941176470588,
+        )
+        self.assertAlmostEqual(
+            HELPERS.decode_position_encoded_height_mm(6452.7, minimum_height_mm, maximum_height_mm),
+            1293.0,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

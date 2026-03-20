@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 
 DEFAULT_MAX_HEIGHT_MM = 1293
+POSITION_ENCODED_HEIGHT_LOW_BYTE = 0x0F
+POSITION_ENCODED_HEIGHT_ZERO_BYTE = 0xFD
+POSITION_ENCODED_HEIGHT_STEPS = 255
 
 _ADDRESS_RE = re.compile(r"^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$")
 
@@ -41,3 +44,37 @@ def choose_max_height_mm(*candidates: int | float | None) -> int:
         if value > 0:
             return value
     return DEFAULT_MAX_HEIGHT_MM
+
+
+def choose_height_limit_mm(*candidates: int | float | None) -> int | None:
+    """Select the first positive height limit value."""
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        value = int(candidate)
+        if value > 0:
+            return value
+    return None
+
+
+def decode_position_encoded_height_mm(
+    raw_height_mm: int | float,
+    minimum_height_mm: int | float,
+    maximum_height_mm: int | float,
+) -> float:
+    """Decode the V2 position-encoded height notification into millimeters.
+
+    Some V2 desks expose current height as a wrapping one-byte position value
+    rather than an absolute height in tenths of millimeters. The byte sequence
+    observed on this desk is ``[position, 0x0F]``, where position wraps from
+    ``0xFF`` back to ``0x00`` as the desk rises.
+    """
+    raw_tenths_mm = int(round(float(raw_height_mm) * 10))
+    position_byte = raw_tenths_mm >> 8
+    position_offset = (
+        position_byte - POSITION_ENCODED_HEIGHT_ZERO_BYTE
+    ) % (POSITION_ENCODED_HEIGHT_STEPS + 1)
+    span_mm = float(maximum_height_mm) - float(minimum_height_mm)
+    return float(minimum_height_mm) + (
+        position_offset / POSITION_ENCODED_HEIGHT_STEPS
+    ) * span_mm

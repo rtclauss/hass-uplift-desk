@@ -463,7 +463,6 @@ class V2SupportTestCase(unittest.TestCase):
                 self.height_limit_config_max_mm = 0
                 self.moves: list[int] = []
                 self.requested_limits = 0
-                self.move_up_calls = 0
 
             async def request_height_limits(self) -> None:
                 self.requested_limits += 1
@@ -471,9 +470,6 @@ class V2SupportTestCase(unittest.TestCase):
 
             async def move_to_specified_height(self, height: int) -> None:
                 self.moves.append(height)
-
-            async def move_up(self) -> None:
-                self.move_up_calls += 1
 
         fake_desk = FakeDesk()
 
@@ -486,9 +482,8 @@ class V2SupportTestCase(unittest.TestCase):
 
         self.assertEqual(fake_desk.requested_limits, 1)
         self.assertEqual(fake_desk.moves, [1270])
-        self.assertEqual(fake_desk.move_up_calls, 0)
 
-    def test_move_to_max_falls_back_to_move_up_without_reported_limit(self) -> None:
+    def test_move_to_max_falls_back_to_default_when_limit_missing(self) -> None:
         modules = _load_integration_modules("coordinator")
         coordinator_module = modules["coordinator"]
         entry = SimpleNamespace(title="Uplift Desk 75B205")
@@ -505,16 +500,12 @@ class V2SupportTestCase(unittest.TestCase):
                 self.height_limit_config_max_mm = 0
                 self.moves: list[int] = []
                 self.requested_limits = 0
-                self.move_up_calls = 0
 
             async def request_height_limits(self) -> None:
                 self.requested_limits += 1
 
             async def move_to_specified_height(self, height: int) -> None:
                 self.moves.append(height)
-
-            async def move_up(self) -> None:
-                self.move_up_calls += 1
 
         fake_desk = FakeDesk()
 
@@ -526,8 +517,7 @@ class V2SupportTestCase(unittest.TestCase):
         asyncio.run(coordinator.async_move_to_max())
 
         self.assertEqual(fake_desk.requested_limits, 1)
-        self.assertEqual(fake_desk.moves, [])
-        self.assertEqual(fake_desk.move_up_calls, 1)
+        self.assertEqual(fake_desk.moves, [1293])
 
     def test_height_notification_converts_v2_mm_updates_to_inches(self) -> None:
         modules = _load_integration_modules("coordinator")

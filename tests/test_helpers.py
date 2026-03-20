@@ -47,8 +47,9 @@ class HelpersTestCase(unittest.TestCase):
             HELPERS.choose_max_height_mm(1200, 1234, 1270),
             1200,
         )
-        self.assertIsNone(
+        self.assertEqual(
             HELPERS.choose_max_height_mm(None, 0, None),
+            HELPERS.DEFAULT_MAX_HEIGHT_MM,
         )
 
 

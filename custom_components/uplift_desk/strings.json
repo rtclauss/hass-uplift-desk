@@ -1,9 +1,20 @@
 {
     "config": {
         "step": {
-            "confirm": {
-                "description": "[%key:common::config_flow::description::confirm_setup%]"
+            "user": {
+                "title": "Add Uplift desk",
+                "description": "Enter the Bluetooth address manually. This is useful for desks that do not advertise reliably for automatic discovery.",
+                "data": {
+                    "address": "Bluetooth address",
+                    "name": "Name"
+                }
+            },
+            "bluetooth_confirm": {
+                "description": "Do you want to set up {name}?"
             }
+        },
+        "error": {
+            "invalid_address": "Enter a valid Bluetooth address"
         },
         "abort": {
             "single_instance_allowed": "[%key:common::config_flow::abort::single_instance_allowed%]",

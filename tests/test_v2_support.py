@@ -446,7 +446,7 @@ class V2SupportTestCase(unittest.TestCase):
 
         self.assertEqual(fake_desk.moves, [1300])
 
-    def test_move_to_max_raises_without_reported_limit(self) -> None:
+    def test_move_to_max_requests_limits_when_missing(self) -> None:
         modules = _load_integration_modules("coordinator")
         coordinator_module = modules["coordinator"]
         entry = SimpleNamespace(title="Uplift Desk 75B205")
@@ -462,6 +462,11 @@ class V2SupportTestCase(unittest.TestCase):
                 self.height_limit_max_mm = None
                 self.height_limit_config_max_mm = 0
                 self.moves: list[int] = []
+                self.requested_limits = 0
+
+            async def request_height_limits(self) -> None:
+                self.requested_limits += 1
+                self.height_limit_config_max_mm = 1270
 
             async def move_to_specified_height(self, height: int) -> None:
                 self.moves.append(height)
@@ -473,10 +478,46 @@ class V2SupportTestCase(unittest.TestCase):
 
         coordinator._get_desk_controller = fake_get_desk_controller
 
-        with self.assertRaisesRegex(RuntimeError, "usable maximum height"):
-            asyncio.run(coordinator.async_move_to_max())
+        asyncio.run(coordinator.async_move_to_max())
 
-        self.assertEqual(fake_desk.moves, [])
+        self.assertEqual(fake_desk.requested_limits, 1)
+        self.assertEqual(fake_desk.moves, [1270])
+
+    def test_move_to_max_falls_back_to_default_when_limit_missing(self) -> None:
+        modules = _load_integration_modules("coordinator")
+        coordinator_module = modules["coordinator"]
+        entry = SimpleNamespace(title="Uplift Desk 75B205")
+        device = SimpleNamespace(address="F0:AE:7D:75:B2:05", name="Office Desk")
+        coordinator = coordinator_module.UpliftDeskBluetoothCoordinator(
+            hass=object(),
+            config_entry=entry,
+            desk_ble_device=device,
+        )
+
+        class FakeDesk:
+            def __init__(self) -> None:
+                self.height_limit_max_mm = None
+                self.height_limit_config_max_mm = 0
+                self.moves: list[int] = []
+                self.requested_limits = 0
+
+            async def request_height_limits(self) -> None:
+                self.requested_limits += 1
+
+            async def move_to_specified_height(self, height: int) -> None:
+                self.moves.append(height)
+
+        fake_desk = FakeDesk()
+
+        async def fake_get_desk_controller():
+            return fake_desk
+
+        coordinator._get_desk_controller = fake_get_desk_controller
+
+        asyncio.run(coordinator.async_move_to_max())
+
+        self.assertEqual(fake_desk.requested_limits, 1)
+        self.assertEqual(fake_desk.moves, [1293])
 
     def test_height_notification_converts_v2_mm_updates_to_inches(self) -> None:
         modules = _load_integration_modules("coordinator")

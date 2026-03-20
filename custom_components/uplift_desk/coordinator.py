@@ -159,14 +159,18 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
     async def async_move_to_max(self) -> None:
         """Move the desk to its configured maximum height."""
         desk = await self._get_desk_controller()
+        if not any(
+            candidate is not None and int(candidate) > 0
+            for candidate in (
+                desk.height_limit_max_mm,
+                desk.height_limit_config_max_mm,
+            )
+        ):
+            await desk.request_height_limits()
         max_height_mm = choose_max_height_mm(
             desk.height_limit_max_mm,
             desk.height_limit_config_max_mm,
         )
-        if max_height_mm is None:
-            raise RuntimeError(
-                f"Desk {self.desk_info} did not report a usable maximum height"
-            )
         await desk.move_to_specified_height(max_height_mm)
 
     async def async_stop(self) -> None:

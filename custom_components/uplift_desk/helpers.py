@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+DEFAULT_MAX_HEIGHT_MM = 1293
+
 _ADDRESS_RE = re.compile(r"^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$")
 
 
@@ -30,12 +32,12 @@ def desk_title(name: str | None, address: str) -> str:
     return default_desk_name(address)
 
 
-def choose_max_height_mm(*candidates: int | float | None) -> int | None:
-    """Select a usable maximum height from desk-reported values."""
+def choose_max_height_mm(*candidates: int | float | None) -> int:
+    """Select a usable maximum height, falling back to the measured desk max."""
     for candidate in candidates:
         if candidate is None:
             continue
         value = int(candidate)
         if value > 0:
             return value
-    return None
+    return DEFAULT_MAX_HEIGHT_MM

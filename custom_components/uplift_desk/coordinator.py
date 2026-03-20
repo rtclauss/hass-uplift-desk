@@ -164,6 +164,12 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
             desk.height_limit_config_max_mm,
         )
         if max_height_mm is None:
+            await desk.request_height_limits()
+            max_height_mm = choose_max_height_mm(
+                desk.height_limit_max_mm,
+                desk.height_limit_config_max_mm,
+            )
+        if max_height_mm is None:
             raise RuntimeError(
                 f"Desk {self.desk_info} did not report a usable maximum height"
             )

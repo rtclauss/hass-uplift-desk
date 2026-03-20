@@ -1,129 +1,179 @@
-"""The uplift desk Bluetooth integration."""
+"""Coordinator for the Uplift Desk integration."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 import logging
-
-from uplift import Desk
-
-from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
-
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
-
-from homeassistant.core import CoreState, HomeAssistant
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from typing import TYPE_CHECKING
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+from bleak_retry_connector import establish_connection
+from uplift_ble.ble_protos import BLEClientProtocol, BLEDeviceProtocol
+from uplift_ble.desk_controller import DeskController
+from uplift_ble.desk_enums import DeskEventType
+from uplift_ble.desk_validator import DeskValidator
+from uplift_ble.models import DiscoveredDesk
 
-from .const import DOMAIN
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-type Uplift_Desk_DeskConfigEntry = ConfigEntry[UpliftDeskBluetoothCoordinator]  # noqa: F821
+from .const import BLEAK_TIMEOUT_SECONDS
+from .helpers import choose_max_height_mm, desk_title
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
-def process_service_info(
-    hass: HomeAssistant,
-    entry: Uplift_Desk_DeskConfigEntry,
-    service_info: BluetoothServiceInfoBleak,
-) -> SensorUpdate:
-    """Process a BluetoothServiceInfoBleak, running side effects and returning sensor data."""
-    coordinator = entry.runtime_data
-    data = coordinator.device_data
-    update = data.update(service_info)
-    if not coordinator.model_info and (device_type := data.device_type):
-        hass.config_entries.async_update_entry(
-            entry, data={**entry.data, CONF_DEVICE_TYPE: device_type}
-        )
-        coordinator.set_model_info(device_type)
-    if update.events and hass.state is CoreState.running:
-        # Do not fire events on data restore
-        address = service_info.device.address
-        for event in update.events.values():
-            key = event.device_key.key
-            signal = format_event_dispatcher_name(address, key)
-            async_dispatcher_send(hass, signal)
-
-    return update
+type Uplift_Desk_DeskConfigEntry = ConfigEntry["UpliftDeskBluetoothCoordinator"]
 
 
-def format_event_dispatcher_name(address: str, key: str) -> str:
-    """Format an event dispatcher name."""
-    return f"{DOMAIN}_{address}_{key}"
+_LOGGER = logging.getLogger(__name__)
 
 
-class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
-    """Define the Update Coordinator."""
+def convert_mm_to_in(millimeters: int | float) -> float:
+    """Convert millimeters to inches."""
+    return millimeters / 25.4
+
+
+def _generate_existing_client_factory(
+    bleak_client: BleakClient,
+) -> Callable[..., BLEClientProtocol]:
+    def _existing_client_factory(
+        device: BLEDeviceProtocol, timeout: float
+    ) -> BLEClientProtocol:
+        return bleak_client
+
+    return _existing_client_factory
+
+
+class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
+    """Coordinate Bluetooth I/O and desk state."""
 
     def __init__(
         self,
         hass: HomeAssistant,
         config_entry: Uplift_Desk_DeskConfigEntry,
-        ble_device: BLEDevice
+        desk_ble_device: BLEDevice,
     ) -> None:
-        """Initialize the Data Coordinator."""
+        """Initialize the coordinator."""
         super().__init__(hass, _LOGGER, name="Uplift Desk", config_entry=config_entry)
-
-        desk = Desk(ble_device.address, config_entry.title)
-        _LOGGER.debug("Initializing coordinator for desk %s with config entry %s", desk, config_entry)
-
-        self._ble_device = ble_device
-
-        self._desk = desk
-        self._desk.register_callback(self._async_height_notify_callback)
+        self._entry = config_entry
+        self._desk_ble_device = desk_ble_device
+        self._discovered_desk: DiscoveredDesk | None = None
+        self._desk: DeskController | None = None
+        self.height_in: float | None = None
 
     @property
-    def desk_address(self):
-        return self._desk.address
+    def desk_name(self) -> str:
+        """Return the configured desk name."""
+        return desk_title(self._entry.title, self._desk_ble_device.address)
 
     @property
-    def desk_name(self):
-        return self._desk.name
+    def desk_address(self) -> str:
+        """Return the Bluetooth address."""
+        return self._desk_ble_device.address
 
     @property
-    def desk_info(self):
-        return str(self._desk)
+    def desk_info(self) -> str:
+        """Return a concise desk identifier."""
+        return f"{self.desk_name} - {self.desk_address}"
 
     @property
-    def is_connected(self):
-        return self._desk.bleak_client is not None and\
-            self._desk.bleak_client.is_connected
+    def is_connected(self) -> bool:
+        """Return whether the underlying BLE client is connected."""
+        return (
+            self._desk is not None
+            and self._desk.client is not None
+            and self._desk.client.is_connected
+        )
 
-    async def async_connect(self):
-        if not self.is_connected:
-            self._desk.bleak_client = await establish_connection(
-                BleakClientWithServiceCache,
-                self._ble_device,
-                self._ble_device.name or self.desk_name or "Unknown",
-                max_attempts=3
+    async def _get_desk_controller(self) -> DeskController:
+        """Return a validated, connected desk controller."""
+        if self._desk is not None and self.is_connected:
+            return self._desk
+
+        validation_client = await establish_connection(
+            BleakClient,
+            self._desk_ble_device,
+            self._desk_ble_device.name or self.desk_name,
+            max_attempts=3,
+            use_services_cache=False,
+        )
+
+        validator = DeskValidator(
+            client_factory=_generate_existing_client_factory(validation_client)
+        )
+        validated_desk = await validator.validate_device(
+            self._desk_ble_device, timeout=BLEAK_TIMEOUT_SECONDS
+        )
+        if validated_desk is None:
+            raise RuntimeError(
+                f"Failed to validate desk at {self._desk_ble_device.address}"
             )
 
-    async def async_disconnect(self):
+        desk_client = await establish_connection(
+            BleakClient,
+            self._desk_ble_device,
+            self._desk_ble_device.name or self.desk_name,
+            max_attempts=3,
+            use_services_cache=False,
+        )
+        self._discovered_desk = validated_desk
+        self._desk = validated_desk.create_controller(desk_client)
+        self._desk.on(DeskEventType.HEIGHT, self._async_height_notify_callback)
+        return self._desk
+
+    async def async_connect(self) -> None:
+        """Start the BLE controller."""
+        await (await self._get_desk_controller()).start()
+
+    async def async_disconnect(self) -> None:
+        """Stop notifications and disconnect cleanly."""
+        if self._desk is None:
+            return
+
         try:
-            await self._desk.bleak_client.disconnect()
+            await self._desk.stop()
         finally:
-            self._desk.bleak_client = None
+            if self._desk.client is not None and self._desk.client.is_connected:
+                await self._desk.client.disconnect()
+            self._desk = None
 
-    async def async_start_notify(self):
-        await self._desk.start_notify()
+    async def async_read_desk_height(self) -> float | None:
+        """Request desk telemetry and update the cached height."""
+        desk = await self._get_desk_controller()
+        await desk.request_height_limits()
+        if desk.height_mm is not None:
+            self.height_in = convert_mm_to_in(desk.height_mm)
+            self.async_set_updated_data(self.height_in)
+        return self.height_in
 
-    async def async_stop_notify(self):
-        await self._desk.stop_notify()
+    async def async_preset_1(self) -> None:
+        """Move the desk to preset 1."""
+        await (await self._get_desk_controller()).move_to_height_preset_1()
 
-    async def async_read_desk_height(self):
-        return await self._desk.read_height()
+    async def async_preset_2(self) -> None:
+        """Move the desk to preset 2."""
+        await (await self._get_desk_controller()).move_to_height_preset_2()
 
-    async def async_sit(self):
-        await self._desk.move_to_sitting()
+    async def async_move_to_max(self) -> None:
+        """Move the desk to its configured maximum height."""
+        desk = await self._get_desk_controller()
+        max_height_mm = choose_max_height_mm(
+            desk.height_limit_max_mm,
+            desk.height_limit_config_max_mm,
+        )
+        if max_height_mm is None:
+            raise RuntimeError(
+                f"Desk {self.desk_info} did not report a usable maximum height"
+            )
+        await desk.move_to_specified_height(max_height_mm)
 
-    async def async_stand(self):
-        await self._desk.move_to_standing()
+    async def async_stop(self) -> None:
+        """Stop desk movement."""
+        await (await self._get_desk_controller()).stop_movement()
 
-    async def _async_height_notify_callback(self, desk: Desk):
-        self.async_set_updated_data(desk)
+    def _async_height_notify_callback(self, height_mm: float) -> None:
+        """Handle height notifications from the desk."""
+        self.height_in = convert_mm_to_in(height_mm)
+        self.async_set_updated_data(self.height_in)

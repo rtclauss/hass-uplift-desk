@@ -1,4 +1,27 @@
 {
+    "config": {
+        "step": {
+            "user": {
+                "title": "Add Uplift desk",
+                "description": "Enter the Bluetooth address manually. This is useful for desks that do not advertise reliably for automatic discovery.",
+                "data": {
+                    "address": "Bluetooth address",
+                    "name": "Name"
+                }
+            },
+            "bluetooth_confirm": {
+                "description": "Do you want to set up {name}?"
+            }
+        },
+        "error": {
+            "invalid_address": "Enter a valid Bluetooth address"
+        }
+    },
+    "exceptions": {
+        "device_not_found_error": {
+            "message": "Could not find Uplift Desk with address {address}"
+        }
+    },
     "entity": {
         "sensor": {
             "desk_height": {
@@ -6,11 +29,17 @@
             }
         },
         "button": {
-            "desk_sit": {
-                "name": "Move to Sitting Preset"
+            "desk_preset_1": {
+                "name": "Move to Preset 1"
             },
-            "desk_stand": {
-                "name": "Move to Standing Preset"
+            "desk_preset_2": {
+                "name": "Move to Preset 2"
+            },
+            "desk_max": {
+                "name": "Move to Max Height"
+            },
+            "desk_stop": {
+                "name": "Stop"
             }
         }
     }

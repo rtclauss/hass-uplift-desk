@@ -535,6 +535,89 @@ class V2SupportTestCase(unittest.TestCase):
         self.assertAlmostEqual(coordinator.height_in, 40.0)
         self.assertAlmostEqual(coordinator.data, 40.0)
 
+    def test_position_encoded_height_notification_decodes_using_limits(self) -> None:
+        modules = _load_integration_modules("coordinator")
+        coordinator_module = modules["coordinator"]
+        entry = SimpleNamespace(title="Uplift Desk 75B205")
+        device = SimpleNamespace(address="F0:AE:7D:75:B2:05", name="Office Desk")
+        coordinator = coordinator_module.UpliftDeskBluetoothCoordinator(
+            hass=object(),
+            config_entry=entry,
+            desk_ble_device=device,
+        )
+        coordinator._desk = SimpleNamespace(
+            height_limit_min_mm=None,
+            height_limit_config_min_mm=643,
+            height_limit_max_mm=None,
+            height_limit_config_max_mm=1293,
+        )
+
+        coordinator._async_height_notify_callback(2689.5)
+
+        self.assertAlmostEqual(coordinator.height_in, 36.153311718388145)
+        self.assertAlmostEqual(coordinator.data, coordinator.height_in)
+        self.assertTrue(coordinator._uses_position_encoded_height)
+
+    def test_position_encoded_height_notification_decodes_with_fallback_limits(self) -> None:
+        modules = _load_integration_modules("coordinator")
+        coordinator_module = modules["coordinator"]
+        entry = SimpleNamespace(title="Uplift Desk 75B205")
+        device = SimpleNamespace(address="F0:AE:7D:75:B2:05", name="Office Desk")
+        coordinator = coordinator_module.UpliftDeskBluetoothCoordinator(
+            hass=object(),
+            config_entry=entry,
+            desk_ble_device=device,
+        )
+        coordinator._desk = SimpleNamespace(
+            height_limit_min_mm=None,
+            height_limit_config_min_mm=None,
+            height_limit_max_mm=None,
+            height_limit_config_max_mm=None,
+        )
+
+        coordinator._async_height_notify_callback(2689.5)
+
+        self.assertAlmostEqual(coordinator.height_in, 36.153311718388145)
+        self.assertAlmostEqual(coordinator.data, coordinator.height_in)
+        self.assertTrue(coordinator._uses_position_encoded_height)
+
+    def test_async_read_height_decodes_position_encoded_min_height(self) -> None:
+        modules = _load_integration_modules("coordinator")
+        coordinator_module = modules["coordinator"]
+        entry = SimpleNamespace(title="Uplift Desk 75B205")
+        device = SimpleNamespace(address="F0:AE:7D:75:B2:05", name="Office Desk")
+        coordinator = coordinator_module.UpliftDeskBluetoothCoordinator(
+            hass=object(),
+            config_entry=entry,
+            desk_ble_device=device,
+        )
+
+        class FakeDesk:
+            def __init__(self) -> None:
+                self.height_mm = 6478.3
+                self.height_limit_min_mm = None
+                self.height_limit_config_min_mm = 643
+                self.height_limit_max_mm = None
+                self.height_limit_config_max_mm = 1293
+                self.requested_limits = 0
+
+            async def request_height_limits(self) -> None:
+                self.requested_limits += 1
+
+        fake_desk = FakeDesk()
+
+        async def fake_get_desk_controller():
+            return fake_desk
+
+        coordinator._get_desk_controller = fake_get_desk_controller
+        coordinator._desk = fake_desk
+
+        result = asyncio.run(coordinator.async_read_desk_height())
+
+        self.assertEqual(fake_desk.requested_limits, 1)
+        self.assertAlmostEqual(result, 25.314960629921263)
+        self.assertAlmostEqual(coordinator.height_in, result)
+
     def test_coordinator_connect_uses_plain_bleak_client_for_v2_desk(self) -> None:
         modules = _load_integration_modules("coordinator")
         coordinator_module = modules["coordinator"]

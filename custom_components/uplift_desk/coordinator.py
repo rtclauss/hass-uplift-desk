@@ -19,7 +19,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import BLEAK_TIMEOUT_SECONDS
-from .helpers import choose_max_height_mm, desk_title
+from .helpers import (
+    DEFAULT_MAX_HEIGHT_MM,
+    DEFAULT_MIN_HEIGHT_MM,
+    POSITION_ENCODED_HEIGHT_LOW_BYTE,
+    choose_height_limit_mm,
+    choose_max_height_mm,
+    decode_position_encoded_height_mm,
+    desk_title,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -62,6 +70,7 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
         self._discovered_desk: DiscoveredDesk | None = None
         self._desk: DeskController | None = None
         self.height_in: float | None = None
+        self._uses_position_encoded_height = False
 
     @property
     def desk_name(self) -> str:
@@ -138,13 +147,63 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
             if self._desk.client is not None and self._desk.client.is_connected:
                 await self._desk.client.disconnect()
             self._desk = None
+            self._uses_position_encoded_height = False
+
+    def _current_height_limits_mm(self) -> tuple[int | None, int | None]:
+        """Return the best available minimum and maximum height limits."""
+        if self._desk is None:
+            return None, None
+        minimum_height_mm = choose_height_limit_mm(
+            self._desk.height_limit_min_mm,
+            self._desk.height_limit_config_min_mm,
+            DEFAULT_MIN_HEIGHT_MM,
+        )
+        maximum_height_mm = choose_height_limit_mm(
+            self._desk.height_limit_max_mm,
+            self._desk.height_limit_config_max_mm,
+            DEFAULT_MAX_HEIGHT_MM,
+        )
+        return minimum_height_mm, maximum_height_mm
+
+    def _decode_height_mm(self, reported_height_mm: float) -> float:
+        """Normalize V2 position-encoded height notifications when detected."""
+        minimum_height_mm, maximum_height_mm = self._current_height_limits_mm()
+        if (
+            minimum_height_mm is None
+            or maximum_height_mm is None
+            or maximum_height_mm <= minimum_height_mm
+        ):
+            return reported_height_mm
+
+        raw_tenths_mm = int(round(reported_height_mm * 10))
+        if (raw_tenths_mm & 0xFF) != POSITION_ENCODED_HEIGHT_LOW_BYTE:
+            return reported_height_mm
+
+        if not self._uses_position_encoded_height and (
+            reported_height_mm < (minimum_height_mm - 100)
+            or reported_height_mm > (maximum_height_mm + 100)
+        ):
+            self._uses_position_encoded_height = True
+            _LOGGER.debug(
+                "Detected position-encoded height notifications for %s",
+                self.desk_info,
+            )
+
+        if not self._uses_position_encoded_height:
+            return reported_height_mm
+
+        return decode_position_encoded_height_mm(
+            reported_height_mm,
+            minimum_height_mm,
+            maximum_height_mm,
+        )
 
     async def async_read_desk_height(self) -> float | None:
         """Request desk telemetry and update the cached height."""
         desk = await self._get_desk_controller()
         await desk.request_height_limits()
         if desk.height_mm is not None:
-            self.height_in = convert_mm_to_in(desk.height_mm)
+            self.height_in = convert_mm_to_in(self._decode_height_mm(desk.height_mm))
             self.async_set_updated_data(self.height_in)
         return self.height_in
 
@@ -179,5 +238,5 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
 
     def _async_height_notify_callback(self, height_mm: float) -> None:
         """Handle height notifications from the desk."""
-        self.height_in = convert_mm_to_in(height_mm)
+        self.height_in = convert_mm_to_in(self._decode_height_mm(height_mm))
         self.async_set_updated_data(self.height_in)

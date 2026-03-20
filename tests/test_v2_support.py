@@ -558,6 +558,29 @@ class V2SupportTestCase(unittest.TestCase):
         self.assertAlmostEqual(coordinator.data, coordinator.height_in)
         self.assertTrue(coordinator._uses_position_encoded_height)
 
+    def test_position_encoded_height_notification_decodes_with_fallback_limits(self) -> None:
+        modules = _load_integration_modules("coordinator")
+        coordinator_module = modules["coordinator"]
+        entry = SimpleNamespace(title="Uplift Desk 75B205")
+        device = SimpleNamespace(address="F0:AE:7D:75:B2:05", name="Office Desk")
+        coordinator = coordinator_module.UpliftDeskBluetoothCoordinator(
+            hass=object(),
+            config_entry=entry,
+            desk_ble_device=device,
+        )
+        coordinator._desk = SimpleNamespace(
+            height_limit_min_mm=None,
+            height_limit_config_min_mm=None,
+            height_limit_max_mm=None,
+            height_limit_config_max_mm=None,
+        )
+
+        coordinator._async_height_notify_callback(2689.5)
+
+        self.assertAlmostEqual(coordinator.height_in, 36.153311718388145)
+        self.assertAlmostEqual(coordinator.data, coordinator.height_in)
+        self.assertTrue(coordinator._uses_position_encoded_height)
+
     def test_async_read_height_decodes_position_encoded_min_height(self) -> None:
         modules = _load_integration_modules("coordinator")
         coordinator_module = modules["coordinator"]

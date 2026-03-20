@@ -54,6 +54,10 @@ class HelpersTestCase(unittest.TestCase):
 
     def test_choose_height_limit_mm_returns_first_positive_value(self) -> None:
         self.assertEqual(HELPERS.choose_height_limit_mm(None, 643, 1270), 643)
+        self.assertEqual(
+            HELPERS.choose_height_limit_mm(None, None, HELPERS.DEFAULT_MIN_HEIGHT_MM),
+            HELPERS.DEFAULT_MIN_HEIGHT_MM,
+        )
         self.assertEqual(HELPERS.choose_height_limit_mm(0, None), None)
 
     def test_decode_position_encoded_height_mm_maps_min_stand_and_max(self) -> None:

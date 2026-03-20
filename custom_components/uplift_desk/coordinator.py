@@ -20,6 +20,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import BLEAK_TIMEOUT_SECONDS
 from .helpers import (
+    DEFAULT_MAX_HEIGHT_MM,
+    DEFAULT_MIN_HEIGHT_MM,
     POSITION_ENCODED_HEIGHT_LOW_BYTE,
     choose_height_limit_mm,
     choose_max_height_mm,
@@ -154,10 +156,12 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator[float | None]):
         minimum_height_mm = choose_height_limit_mm(
             self._desk.height_limit_min_mm,
             self._desk.height_limit_config_min_mm,
+            DEFAULT_MIN_HEIGHT_MM,
         )
         maximum_height_mm = choose_height_limit_mm(
             self._desk.height_limit_max_mm,
             self._desk.height_limit_config_max_mm,
+            DEFAULT_MAX_HEIGHT_MM,
         )
         return minimum_height_mm, maximum_height_mm
 

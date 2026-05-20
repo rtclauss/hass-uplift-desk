@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 import logging
 
@@ -85,6 +86,7 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             )
             self._desk = validated_desk.create_controller(bleak_client)
             self._desk.on(DeskEventType.HEIGHT, self._async_height_notify_callback)
+            await self._desk.start()
 
         return self._desk
 
@@ -105,7 +107,7 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         return self._desk is not None and self._desk.client is not None and self._desk.client.is_connected
 
     async def async_connect(self):
-        await (await self._get_desk_controller()).start()
+        await self._get_desk_controller()
 
     async def async_disconnect(self):
         controller = await self._get_desk_controller()
@@ -136,6 +138,8 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         max_height_mm = controller.height_limit_config_max_mm
         if not max_height_mm:
             await controller.request_height_limits()
+            # wait for desk to send back the 0x07 notification response
+            await asyncio.sleep(1.5)
             max_height_mm = controller.height_limit_config_max_mm
         if max_height_mm:
             # move_to_specified_height takes tenths-of-mm; height_limit_config_max_mm is in mm

@@ -176,7 +176,16 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
     async def async_stop(self):
         await (await self._get_desk_controller()).stop_movement()
 
-    def _async_height_notify_callback(self, height_mm: int):
-        _LOGGER.debug("Height notify callback received height: %d mm", height_mm)
-        self.height_in = convert_mm_to_in(height_mm)
+    def _async_height_notify_callback(self, height_raw):
+        # Log at WARNING so it always appears regardless of log level.
+        # If the desk is at ~25" (642 mm / 6420 tenths), one of these will match:
+        #   if_mm:     height_raw / 25.4  → ~25"
+        #   if_tenths: height_raw / 254.0 → ~25"
+        _LOGGER.warning(
+            "HEIGHT callback raw=%.4g  if_mm=%.2f\"  if_tenths=%.2f\"",
+            height_raw,
+            height_raw / 25.4,
+            height_raw / 254.0,
+        )
+        self.height_in = convert_mm_to_in(height_raw)
         self.async_set_updated_data(self._desk)

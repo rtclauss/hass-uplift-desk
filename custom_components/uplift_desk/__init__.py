@@ -5,8 +5,6 @@ import logging
 
 from .const import DOMAIN
 
-from uplift import Desk
-
 from homeassistant.components.bluetooth import (
     async_ble_device_from_address
 )
@@ -20,7 +18,7 @@ from .coordinator import (
     Uplift_Desk_DeskConfigEntry,
 )
 
-_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
+_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Uplift_Desk_DeskConfigEn
     if not ble_device:
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN,
-            translation_key="device_not_found_error",
+            translation_key="no_device_found",
             translation_placeholders={"address": address},
         )
 
@@ -41,7 +39,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: Uplift_Desk_DeskConfigEn
     entry.runtime_data = coordinator
 
     await coordinator.async_connect()
-    await coordinator.async_start_notify()
 
     await coordinator.async_read_desk_height()
     coordinator.async_set_updated_data(coordinator._desk)
@@ -56,7 +53,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: Uplift_Desk_DeskConfigE
     """Unload a config entry."""
     coordinator: UpliftDeskBluetoothCoordinator = entry.runtime_data
 
-    await coordinator.async_stop_notify()
     await coordinator.async_disconnect()
 
     return await hass.config_entries.async_unload_platforms(entry, _PLATFORMS)

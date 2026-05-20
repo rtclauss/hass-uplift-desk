@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 import logging
+import traceback
 
 from uplift_ble.desk_controller import DeskController
 from uplift_ble.desk_validator import DeskValidator
@@ -177,15 +178,13 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         await (await self._get_desk_controller()).stop_movement()
 
     def _async_height_notify_callback(self, height_raw):
-        # Log at WARNING so it always appears regardless of log level.
-        # If the desk is at ~25" (642 mm / 6420 tenths), one of these will match:
-        #   if_mm:     height_raw / 25.4  → ~25"
-        #   if_tenths: height_raw / 254.0 → ~25"
+        stack = ''.join(traceback.format_stack(limit=6))
         _LOGGER.warning(
-            "HEIGHT callback raw=%.4g  if_mm=%.2f\"  if_tenths=%.2f\"",
+            "HEIGHT callback raw=%.4g  if_mm=%.2f\"  if_tenths=%.2f\"\nStack:\n%s",
             height_raw,
             height_raw / 25.4,
             height_raw / 254.0,
+            stack,
         )
         self.height_in = convert_mm_to_in(height_raw)
         self.async_set_updated_data(self._desk)

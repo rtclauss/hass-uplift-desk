@@ -63,6 +63,8 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         self._discovered_desk = DiscoveredDesk(name=config_entry.title, address=desk_ble_device.address)
         self._desk_ble_device = desk_ble_device
         self._desk = None
+        self._desk_started = False
+        self.height_in: float | None = None
 
     async def _get_desk_controller(self):
         _LOGGER.debug("Getting desk controller for %s", self.desk_info)
@@ -86,9 +88,15 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             )
             self._desk = validated_desk.create_controller(bleak_client)
             self._desk.on(DeskEventType.HEIGHT, self._async_height_notify_callback)
-            await self._desk.start()
+            self._desk_started = False
 
         return self._desk
+
+    async def _ensure_started(self):
+        """Reconnect and start the notification processor if not already running."""
+        await self._get_desk_controller()
+        if not self._desk_started:
+            await self.async_connect()
 
     @property
     def desk_name(self):
@@ -107,7 +115,8 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         return self._desk is not None and self._desk.client is not None and self._desk.client.is_connected
 
     async def async_connect(self):
-        await self._get_desk_controller()
+        await (await self._get_desk_controller()).start()
+        self._desk_started = True
 
     async def async_disconnect(self):
         controller = await self._get_desk_controller()
@@ -116,17 +125,22 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             await controller.client.disconnect()
         finally:
             self._desk.client = None
+            self._desk_started = False
 
     async def async_read_desk_height(self):
-        await (await self._get_desk_controller()).request_height_limits()
-        self.height_in = convert_mm_to_in((await self._get_desk_controller()).height_mm)
+        controller = await self._get_desk_controller()
+        await controller.request_height_limits()
+        if controller.height_mm is not None:
+            self.height_in = convert_mm_to_in(controller.height_mm)
         return self.height_in
 
     async def async_preset_1(self):
+        await self._ensure_started()
         await self.async_wake()
         await (await self._get_desk_controller()).move_to_height_preset_1()
 
     async def async_preset_2(self):
+        await self._ensure_started()
         await self.async_wake()
         await (await self._get_desk_controller()).move_to_height_preset_2()
 
@@ -134,12 +148,13 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
         await (await self._get_desk_controller()).wake()
 
     async def async_move_to_max_height(self):
+        await self._ensure_started()
         controller = await self._get_desk_controller()
         max_height_mm = controller.height_limit_config_max_mm
         if not max_height_mm:
             await controller.request_height_limits()
-            # wait for desk to send back the 0x07 notification response
-            await asyncio.sleep(1.5)
+            # command_writer already sleeps notification_timeout (1s); add extra buffer
+            await asyncio.sleep(0.5)
             max_height_mm = controller.height_limit_config_max_mm
         if max_height_mm:
             # move_to_specified_height takes tenths-of-mm; height_limit_config_max_mm is in mm
@@ -148,6 +163,7 @@ class UpliftDeskBluetoothCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Max height limit not available from desk")
 
     async def async_stop(self):
+        await self._ensure_started()
         await (await self._get_desk_controller()).stop_movement()
 
     def _async_height_notify_callback(self, height_mm: int):
